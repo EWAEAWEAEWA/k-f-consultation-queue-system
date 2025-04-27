@@ -1,11 +1,15 @@
 package com.consultation.model;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class User {
     private String username;
     private String password;
     private String role; // "STUDENT", "PROFESSOR", "COUNSELOR"
     private String name;
     private String email;
+    private List<String> subjects; // For professors: subjects they teach, for students: subjects they're enrolled in
 
     public User(String username, String password, String role, String name, String email) {
         this.username = username;
@@ -13,6 +17,7 @@ public class User {
         this.role = role;
         this.name = name;
         this.email = email;
+        this.subjects = new ArrayList<>();
     }
 
     // Getters and Setters
@@ -54,6 +59,24 @@ public class User {
 
     public void setEmail(String email) {
         this.email = email;
+    }
+
+    public List<String> getSubjects() {
+        return subjects;
+    }
+
+    public void addSubject(String subject) {
+        if (!subjects.contains(subject)) {
+            subjects.add(subject);
+        }
+    }
+
+    public boolean canTeach(String subject) {
+        return role.equals("PROFESSOR") && subjects.contains(subject);
+    }
+
+    public boolean isEnrolledIn(String subject) {
+        return role.equals("STUDENT") && subjects.contains(subject);
     }
 
     @Override

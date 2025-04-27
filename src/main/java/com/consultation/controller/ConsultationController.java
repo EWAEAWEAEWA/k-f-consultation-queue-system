@@ -4,6 +4,7 @@ import com.consultation.model.User;
 import com.consultation.model.Appointment;
 import com.consultation.model.QueueManager;
 import com.consultation.model.TimeSlot;
+import com.consultation.model.Notification;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -14,6 +15,7 @@ public class ConsultationController {
     private Map<String, QueueManager> queues;
     private Map<String, Map<LocalDate, List<TimeSlot>>> professorSchedules;
     private Map<Integer, Appointment> appointments;
+    private Map<String, List<Notification>> userNotifications;
     private int nextAppointmentId;
 
     public ConsultationController() {
@@ -21,6 +23,7 @@ public class ConsultationController {
         queues = new HashMap<>();
         professorSchedules = new HashMap<>();
         appointments = new HashMap<>();
+        userNotifications = new HashMap<>();
         nextAppointmentId = 1;
         initializeTimeSlots();
     }
@@ -51,16 +54,16 @@ public class ConsultationController {
         }
     }
 
-    public boolean registerUser(String username, String password, String role, String name, String email) {
+    public User registerUser(String username, String password, String role, String name, String email) {
         if (users.containsKey(username)) {
-            return false;
+            return null;
         }
         User user = new User(username, password, role, name, email);
         users.put(username, user);
         if (role.equals("PROFESSOR") || role.equals("COUNSELOR")) {
             queues.put(username, new QueueManager());
         }
-        return true;
+        return user;
     }
 
     public User login(String username, String password) {
@@ -129,6 +132,18 @@ public class ConsultationController {
         if (professorOrCounselor.getRole().equals("STUDENT")) {
             System.out.println("Failed: Professor/Counselor is a student");
             return null;
+        }
+
+        // Check subject restrictions
+        if (professorOrCounselor.getRole().equals("PROFESSOR")) {
+            if (!professorOrCounselor.canTeach(subject)) {
+                System.out.println("Failed: Professor does not teach this subject");
+                return null;
+            }
+            if (!student.isEnrolledIn(subject)) {
+                System.out.println("Failed: Student is not enrolled in this subject");
+                return null;
+            }
         }
 
         // Find the next available time slot
@@ -213,15 +228,146 @@ public class ConsultationController {
 
     public Appointment getNextAppointment(String username) {
         QueueManager queue = queues.get(username);
-        return queue != null ? queue.getNextAppointment() : null;
+        if (queue != null) {
+            Appointment nextAppointment = queue.getNextAppointment();
+            if (nextAppointment != null) {
+                nextAppointment.setStatus("IN_PROGRESS");
+                // Remove from time slot
+                Map<LocalDate, List<TimeSlot>> schedule = professorSchedules.get(username);
+                if (schedule != null) {
+                    List<TimeSlot> slots = schedule.get(nextAppointment.getAppointmentTime().toLocalDate());
+                    if (slots != null) {
+                        for (TimeSlot slot : slots) {
+                            if (slot.getAppointment() != null && 
+                                slot.getAppointment().getId() == nextAppointment.getId()) {
+                                slot.removeAppointment();
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            return nextAppointment;
+        }
+        return null;
+    }
+
+    public boolean updateAppointmentStatus(Appointment appointment, String status) {
+        if (appointments.containsKey(appointment.getId())) {
+            appointment.setStatus(status);
+            return true;
+        }
+        return false;
     }
 
     public boolean setPriority(Appointment appointment, boolean priority) {
         QueueManager queue = queues.get(appointment.getProfessorOrCounselor().getUsername());
         if (queue != null) {
+            // If setting priority, move to front of priority queue
+            if (priority) {
+                // Remove from current time slot
+                Map<LocalDate, List<TimeSlot>> schedule = professorSchedules.get(
+                    appointment.getProfessorOrCounselor().getUsername());
+                if (schedule != null) {
+                    // Find all appointments that need to be moved
+                    List<Appointment> appointmentsToMove = new ArrayList<>();
+                    LocalDateTime currentTime = appointment.getAppointmentTime();
+                    
+                    // Find all regular appointments before the priority appointment
+                    for (Map.Entry<LocalDate, List<TimeSlot>> entry : schedule.entrySet()) {
+                        for (TimeSlot slot : entry.getValue()) {
+                            LocalDateTime slotTime = LocalDateTime.of(entry.getKey(), slot.getStartTime());
+                            if (slotTime.isBefore(currentTime) && slot.getAppointment() != null) {
+                                Appointment existingAppointment = slot.getAppointment();
+                                if (!existingAppointment.isPriority()) {
+                                    appointmentsToMove.add(existingAppointment);
+                                }
+                            }
+                        }
+                    }
+
+                    // Sort appointments by time
+                    appointmentsToMove.sort((a1, a2) -> a1.getAppointmentTime().compareTo(a2.getAppointmentTime()));
+
+                    // Move each appointment to the next available slot
+                    for (Appointment appToMove : appointmentsToMove) {
+                        // Remove from current slot
+                        for (TimeSlot slot : schedule.get(appToMove.getAppointmentTime().toLocalDate())) {
+                            if (slot.getAppointment() != null && 
+                                slot.getAppointment().getId() == appToMove.getId()) {
+                                slot.removeAppointment();
+                                break;
+                            }
+                        }
+
+                        // Find next available slot
+                        LocalDateTime nextAvailableTime = null;
+                        TimeSlot nextAvailableSlot = null;
+                        for (Map.Entry<LocalDate, List<TimeSlot>> entry : schedule.entrySet()) {
+                            for (TimeSlot slot : entry.getValue()) {
+                                LocalDateTime slotTime = LocalDateTime.of(entry.getKey(), slot.getStartTime());
+                                if (slot.isAvailable() && 
+                                    (nextAvailableTime == null || 
+                                     slotTime.isAfter(appToMove.getAppointmentTime()))) {
+                                    nextAvailableTime = slotTime;
+                                    nextAvailableSlot = slot;
+                                    break;
+                                }
+                            }
+                            if (nextAvailableSlot != null) break;
+                        }
+
+                        if (nextAvailableSlot != null) {
+                            nextAvailableSlot.addAppointment(appToMove);
+                            appToMove.setAppointmentTime(nextAvailableTime);
+                            
+                            // Notify the student about the change
+                            notifyAppointmentChange(appToMove, 
+                                "Your appointment has been rescheduled to " + nextAvailableTime + 
+                                " due to a priority appointment");
+                        }
+                    }
+
+                    // Move priority appointment to earliest available slot
+                    LocalDateTime earliestTime = null;
+                    TimeSlot earliestSlot = null;
+                    for (Map.Entry<LocalDate, List<TimeSlot>> entry : schedule.entrySet()) {
+                        for (TimeSlot slot : entry.getValue()) {
+                            LocalDateTime slotTime = LocalDateTime.of(entry.getKey(), slot.getStartTime());
+                            if (slot.isAvailable() && 
+                                (earliestTime == null || 
+                                 slotTime.isBefore(earliestTime))) {
+                                earliestTime = slotTime;
+                                earliestSlot = slot;
+                            }
+                        }
+                    }
+
+                    if (earliestSlot != null) {
+                        earliestSlot.addAppointment(appointment);
+                        appointment.setAppointmentTime(earliestTime);
+                        
+                        // Notify the student about the priority status
+                        notifyAppointmentChange(appointment, 
+                            "Your appointment has been marked as priority and scheduled for " + earliestTime);
+                    }
+                }
+            }
             return queue.setPriority(appointment, priority);
         }
         return false;
+    }
+
+    private void notifyAppointmentChange(Appointment appointment, String message) {
+        Notification notification = new Notification(
+            LocalDateTime.now(),
+            message
+        );
+        
+        // Add notification to student's list
+        String studentUsername = appointment.getStudent().getUsername();
+        userNotifications.computeIfAbsent(studentUsername, k -> new ArrayList<>())
+            .add(notification);
     }
 
     public int getEstimatedWaitTime(String username) {
@@ -258,5 +404,9 @@ public class ConsultationController {
             }
         }
         System.out.println("Time slot initialization complete");
+    }
+
+    public List<Notification> getUserNotifications(String username) {
+        return userNotifications.getOrDefault(username, new ArrayList<>());
     }
 } 

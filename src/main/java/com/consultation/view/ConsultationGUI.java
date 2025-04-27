@@ -4,6 +4,7 @@ import com.consultation.controller.ConsultationController;
 import com.consultation.model.User;
 import com.consultation.model.Appointment;
 import com.consultation.model.QueueManager;
+import com.consultation.model.Notification;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
@@ -111,6 +112,7 @@ public class ConsultationGUI extends JFrame {
         tabbedPane.addTab("Create Appointment", createAppointmentPanel());
         tabbedPane.addTab("My Appointments", createMyAppointmentsPanel());
         tabbedPane.addTab("Queue Status", createQueueStatusPanel());
+        tabbedPane.addTab("Notifications", createNotificationsPanel());
         
         panel.add(tabbedPane, BorderLayout.CENTER);
         
@@ -179,13 +181,14 @@ public class ConsultationGUI extends JFrame {
         JButton cancelButton = new JButton("Cancel");
         
         registerButton.addActionListener(e -> {
-            if (controller.registerUser(
+            User newUser = controller.registerUser(
                 usernameField.getText(),
                 new String(passwordField.getPassword()),
                 (String) roleCombo.getSelectedItem(),
                 nameField.getText(),
                 emailField.getText()
-            )) {
+            );
+            if (newUser != null) {
                 JOptionPane.showMessageDialog(dialog, "Registration successful!");
                 dialog.dispose();
             } else {
@@ -247,46 +250,79 @@ public class ConsultationGUI extends JFrame {
         gbc.insets = new Insets(5, 5, 5, 5);
         gbc.fill = GridBagConstraints.HORIZONTAL;
 
-        // Professor/Counselor selection
+        // Subject selection
+        JComboBox<String> subjectComboBox = new JComboBox<>();
         JComboBox<String> professorComboBox = new JComboBox<>();
         JTextField subjectField = new JTextField(20);
         
-        // Update professor combo box
-        for (User user : controller.getAllUsers()) {
-            if (user.getRole().equals("PROFESSOR") || user.getRole().equals("COUNSELOR")) {
-                professorComboBox.addItem(user.getUsername());
-            }
+        // Update subject combo box with student's enrolled subjects
+        for (String subject : currentUser.getSubjects()) {
+            subjectComboBox.addItem(subject);
         }
+        
+        // Add "Academic Advising" option for counselors
+        subjectComboBox.addItem("Academic Advising");
+        
+        // Update professor combo box when subject changes
+        subjectComboBox.addActionListener(e -> {
+            professorComboBox.removeAllItems();
+            String selectedSubject = (String) subjectComboBox.getSelectedItem();
+            
+            if (selectedSubject.equals("Academic Advising")) {
+                // Show all counselors
+                for (User user : controller.getAllUsers()) {
+                    if (user.getRole().equals("COUNSELOR")) {
+                        professorComboBox.addItem(user.getName() + " (" + user.getUsername() + ")");
+                    }
+                }
+            } else {
+                // Show only professors who teach this subject
+                for (User user : controller.getAllUsers()) {
+                    if (user.getRole().equals("PROFESSOR") && user.canTeach(selectedSubject)) {
+                        professorComboBox.addItem(user.getName() + " (" + user.getUsername() + ")");
+                    }
+                }
+            }
+        });
 
         // Add components to panel
         gbc.gridx = 0;
         gbc.gridy = 0;
+        panel.add(new JLabel("Subject:"), gbc);
+        gbc.gridx = 1;
+        panel.add(subjectComboBox, gbc);
+
+        gbc.gridx = 0;
+        gbc.gridy = 1;
         panel.add(new JLabel("Professor/Counselor:"), gbc);
         gbc.gridx = 1;
         panel.add(professorComboBox, gbc);
 
         gbc.gridx = 0;
-        gbc.gridy = 1;
-        panel.add(new JLabel("Subject:"), gbc);
+        gbc.gridy = 2;
+        panel.add(new JLabel("Additional Notes:"), gbc);
         gbc.gridx = 1;
         panel.add(subjectField, gbc);
 
         // Create appointment button
         JButton createButton = new JButton("Create Appointment");
         gbc.gridx = 0;
-        gbc.gridy = 2;
+        gbc.gridy = 3;
         gbc.gridwidth = 2;
         panel.add(createButton, gbc);
 
         createButton.addActionListener(e -> {
+            String selectedSubject = (String) subjectComboBox.getSelectedItem();
             String selectedUser = (String) professorComboBox.getSelectedItem();
             if (selectedUser == null) {
                 JOptionPane.showMessageDialog(this, "Please select a professor or counselor");
                 return;
             }
 
+            // Extract username from the display string
+            String username = selectedUser.substring(selectedUser.indexOf("(") + 1, selectedUser.indexOf(")"));
             User professorOrCounselor = controller.getAllUsers().stream()
-                .filter(u -> u.getUsername().equals(selectedUser))
+                .filter(u -> u.getUsername().equals(username))
                 .findFirst()
                 .orElse(null);
 
@@ -295,10 +331,9 @@ public class ConsultationGUI extends JFrame {
                 return;
             }
 
-            String subject = subjectField.getText().trim();
-            if (subject.isEmpty()) {
-                JOptionPane.showMessageDialog(this, "Please enter a subject");
-                return;
+            String notes = subjectField.getText().trim();
+            if (notes.isEmpty()) {
+                notes = selectedSubject; // Use subject as default notes
             }
 
             // Default duration of 30 minutes
@@ -308,7 +343,7 @@ public class ConsultationGUI extends JFrame {
             Appointment appointment = controller.createAppointment(
                 currentUser,
                 professorOrCounselor,
-                subject,
+                selectedSubject,
                 duration
             );
 
@@ -517,6 +552,45 @@ public class ConsultationGUI extends JFrame {
         return panel;
     }
 
+    private JPanel createNotificationsPanel() {
+        JPanel panel = new JPanel(new BorderLayout());
+        
+        // Create table model
+        String[] columnNames = {"Time", "Message"};
+        DefaultTableModel model = new DefaultTableModel(columnNames, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return false;
+            }
+        };
+        JTable notificationsTable = new JTable(model);
+        
+        // Add table to scroll pane
+        JScrollPane scrollPane = new JScrollPane(notificationsTable);
+        panel.add(scrollPane, BorderLayout.CENTER);
+        
+        // Add refresh button
+        JButton refreshButton = new JButton("Refresh");
+        refreshButton.addActionListener(e -> refreshNotificationsTable(model));
+        panel.add(refreshButton, BorderLayout.SOUTH);
+        
+        // Initial refresh
+        refreshNotificationsTable(model);
+        
+        return panel;
+    }
+
+    private void refreshNotificationsTable(DefaultTableModel model) {
+        model.setRowCount(0);
+        List<Notification> notifications = controller.getUserNotifications(currentUser.getUsername());
+        for (Notification notification : notifications) {
+            model.addRow(new Object[]{
+                notification.getTimestamp().toString(),
+                notification.getMessage()
+            });
+        }
+    }
+
     private Appointment getAppointmentById(int id) {
         for (Appointment appointment : controller.getUserAppointments(currentUser)) {
             if (appointment.getId() == id) {
@@ -565,7 +639,7 @@ public class ConsultationGUI extends JFrame {
             for (Appointment appointment : queue.getPriorityQueue()) {
                 model.addRow(new Object[]{
                     appointment.getId(),
-                    appointment.getStudent().getUsername(),
+                    appointment.getStudent().getName(),
                     appointment.getSubject(),
                     appointment.getAppointmentTime(),
                     "High"
@@ -575,7 +649,7 @@ public class ConsultationGUI extends JFrame {
             for (Appointment appointment : queue.getRegularQueue()) {
                 model.addRow(new Object[]{
                     appointment.getId(),
-                    appointment.getStudent().getUsername(),
+                    appointment.getStudent().getName(),
                     appointment.getSubject(),
                     appointment.getAppointmentTime(),
                     "Normal"
@@ -585,8 +659,7 @@ public class ConsultationGUI extends JFrame {
     }
 
     private void refreshAppointmentsListTable(DefaultTableModel model) {
-        model.setRowCount(0); // Clear existing data
-        
+        model.setRowCount(0);
         for (Appointment appointment : controller.getUserAppointments(currentUser)) {
             model.addRow(new Object[]{
                 appointment.getId(),
