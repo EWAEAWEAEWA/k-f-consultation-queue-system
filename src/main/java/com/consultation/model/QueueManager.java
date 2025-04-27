@@ -10,6 +10,11 @@ public class QueueManager {
     private PriorityQueue<Appointment> priorityQueue;
     private User professorOrCounselor;
 
+    public QueueManager() {
+        this.regularQueue = new LinkedList<>();
+        this.priorityQueue = new PriorityQueue<>(Comparator.comparing(Appointment::getAppointmentTime));
+    }
+
     public QueueManager(User professorOrCounselor) {
         this.professorOrCounselor = professorOrCounselor;
         this.regularQueue = new LinkedList<>();
@@ -60,5 +65,15 @@ public class QueueManager {
 
     public PriorityQueue<Appointment> getPriorityQueue() {
         return priorityQueue;
+    }
+
+    public boolean setPriority(Appointment appointment, boolean priority) {
+        if (regularQueue.contains(appointment) || priorityQueue.contains(appointment)) {
+            removeAppointment(appointment);
+            appointment.setPriority(priority);
+            addAppointment(appointment);
+            return true;
+        }
+        return false;
     }
 } 

@@ -3,6 +3,8 @@ package com.consultation.util;
 import com.consultation.controller.ConsultationController;
 import com.consultation.model.User;
 import java.time.LocalDateTime;
+import java.time.LocalDate;
+import java.time.LocalTime;
 
 public class DataInitializer {
     public static void initializeData(ConsultationController controller) {
@@ -22,25 +24,37 @@ public class DataInitializer {
         controller.registerUser("student2", "pass123", "STUDENT", 
             "Jane Smith", "jsmith@tip.edu.ph");
 
-        // Create some initial appointments
-        User student1 = controller.login("student1", "pass123");
-        User student2 = controller.login("student2", "pass123");
-        User profSantos = controller.login("prof.santos", "pass123");
-        User profCruz = controller.login("prof.cruz", "pass123");
-        User counselorGarcia = controller.login("counselor.garcia", "pass123");
+        // Initialize time slots for all professors and counselors
+        controller.initializeAllTimeSlots();
 
-        // Create appointments with Prof. Santos (OS)
-        controller.createAppointment(student1, profSantos, 
-            LocalDateTime.now().plusMinutes(30), "Operating Systems", 30);
-        controller.createAppointment(student2, profSantos, 
-            LocalDateTime.now().plusMinutes(60), "Operating Systems", 30);
+        // Get current date and time
+        LocalDateTime now = LocalDateTime.now();
+        LocalDate today = now.toLocalDate();
+        LocalTime morningSlot = LocalTime.of(9, 0); // First morning slot
+        LocalTime afternoonSlot = LocalTime.of(13, 0); // First afternoon slot
 
-        // Create appointments with Prof. Cruz (Data Structures)
-        controller.createAppointment(student1, profCruz, 
-            LocalDateTime.now().plusMinutes(45), "Data Structures", 30);
+        // Create appointments using direct user references from the controller
+        controller.createAppointment(
+            controller.login("student1", "pass123"),
+            controller.login("prof.santos", "pass123"),
+            "Operating Systems", 30);
 
-        // Create appointments with Counselor Garcia
-        controller.createAppointment(student2, counselorGarcia, 
-            LocalDateTime.now().plusMinutes(15), "Academic Advising", 45);
+        controller.createAppointment(
+            controller.login("student2", "pass123"),
+            controller.login("prof.santos", "pass123"),
+            "Operating Systems", 30);
+
+        controller.createAppointment(
+            controller.login("student1", "pass123"),
+            controller.login("prof.cruz", "pass123"),
+            "Data Structures", 30);
+
+        controller.createAppointment(
+            controller.login("student2", "pass123"),
+            controller.login("counselor.garcia", "pass123"),
+            "Academic Advising", 45);
+
+        System.out.println("Initialization complete. Total appointments created: " + 
+            controller.getUserAppointments(controller.login("student1", "pass123")).size());
     }
 } 

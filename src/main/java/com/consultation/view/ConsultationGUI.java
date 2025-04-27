@@ -9,6 +9,9 @@ import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.util.Date;
 import java.util.List;
 
 public class ConsultationGUI extends JFrame {
@@ -245,105 +248,83 @@ public class ConsultationGUI extends JFrame {
         gbc.fill = GridBagConstraints.HORIZONTAL;
 
         // Professor/Counselor selection
-        JComboBox<String> typeCombo = new JComboBox<>(new String[]{"Professor", "Counselor"});
-        JComboBox<String> personCombo = new JComboBox<>();
+        JComboBox<String> professorComboBox = new JComboBox<>();
         JTextField subjectField = new JTextField(20);
-        JSpinner durationSpinner = new JSpinner(new SpinnerNumberModel(30, 15, 120, 15));
-        JButton createButton = new JButton("Create Appointment");
+        
+        // Update professor combo box
+        for (User user : controller.getAllUsers()) {
+            if (user.getRole().equals("PROFESSOR") || user.getRole().equals("COUNSELOR")) {
+                professorComboBox.addItem(user.getUsername());
+            }
+        }
 
+        // Add components to panel
         gbc.gridx = 0;
         gbc.gridy = 0;
-        panel.add(new JLabel("Consultation Type:"), gbc);
+        panel.add(new JLabel("Professor/Counselor:"), gbc);
         gbc.gridx = 1;
-        panel.add(typeCombo, gbc);
+        panel.add(professorComboBox, gbc);
 
         gbc.gridx = 0;
         gbc.gridy = 1;
-        panel.add(new JLabel("Select Person:"), gbc);
-        gbc.gridx = 1;
-        panel.add(personCombo, gbc);
-
-        gbc.gridx = 0;
-        gbc.gridy = 2;
-        panel.add(new JLabel("Subject/Reason:"), gbc);
+        panel.add(new JLabel("Subject:"), gbc);
         gbc.gridx = 1;
         panel.add(subjectField, gbc);
 
+        // Create appointment button
+        JButton createButton = new JButton("Create Appointment");
         gbc.gridx = 0;
-        gbc.gridy = 3;
-        panel.add(new JLabel("Duration (minutes):"), gbc);
-        gbc.gridx = 1;
-        panel.add(durationSpinner, gbc);
-
-        gbc.gridx = 0;
-        gbc.gridy = 4;
+        gbc.gridy = 2;
         gbc.gridwidth = 2;
         panel.add(createButton, gbc);
 
-        // Add action listeners
-        typeCombo.addActionListener(e -> updatePersonCombo(typeCombo, personCombo));
         createButton.addActionListener(e -> {
-            String type = (String) typeCombo.getSelectedItem();
-            String person = (String) personCombo.getSelectedItem();
-            String subject = subjectField.getText();
-            int duration = (Integer) durationSpinner.getValue();
-
-            if (createAppointment(type, person, subject, duration)) {
-                JOptionPane.showMessageDialog(this, "Appointment created successfully!");
-            } else {
-                JOptionPane.showMessageDialog(this, "Failed to create appointment!");
+            String selectedUser = (String) professorComboBox.getSelectedItem();
+            if (selectedUser == null) {
+                JOptionPane.showMessageDialog(this, "Please select a professor or counselor");
+                return;
             }
-        });
 
-        // Initialize person combo
-        updatePersonCombo(typeCombo, personCombo);
-
-        return panel;
-    }
-
-    private void updatePersonCombo(JComboBox<String> typeCombo, JComboBox<String> personCombo) {
-        personCombo.removeAllItems();
-        String type = (String) typeCombo.getSelectedItem();
-        
-        // Get all users and filter by role
-        for (User user : controller.getAllUsers()) {
-            if (type.equals("Professor") && user.getRole().equals("PROFESSOR")) {
-                personCombo.addItem(user.getName());
-            } else if (type.equals("Counselor") && user.getRole().equals("COUNSELOR")) {
-                personCombo.addItem(user.getName());
-            }
-        }
-    }
-
-    private boolean createAppointment(String type, String person, String subject, int duration) {
-        try {
-            // Find the professor/counselor user
-            User professorOrCounselor = null;
-            for (User user : controller.getAllUsers()) {
-                if (user.getName().equals(person)) {
-                    professorOrCounselor = user;
-                    break;
-                }
-            }
+            User professorOrCounselor = controller.getAllUsers().stream()
+                .filter(u -> u.getUsername().equals(selectedUser))
+                .findFirst()
+                .orElse(null);
 
             if (professorOrCounselor == null) {
-                return false;
+                JOptionPane.showMessageDialog(this, "Selected user not found");
+                return;
             }
 
-            // Create the appointment
-            LocalDateTime appointmentTime = LocalDateTime.now().plusMinutes(5);
+            String subject = subjectField.getText().trim();
+            if (subject.isEmpty()) {
+                JOptionPane.showMessageDialog(this, "Please enter a subject");
+                return;
+            }
+
+            // Default duration of 30 minutes
+            int duration = 30;
+
+            // Create appointment with automatic time slot assignment
             Appointment appointment = controller.createAppointment(
                 currentUser,
                 professorOrCounselor,
-                appointmentTime,
                 subject,
                 duration
             );
 
-            return appointment != null;
-        } catch (Exception e) {
-            return false;
-        }
+            if (appointment != null) {
+                JOptionPane.showMessageDialog(this, 
+                    "Appointment created successfully!\n" +
+                    "Date: " + appointment.getAppointmentTime().toLocalDate() + "\n" +
+                    "Time: " + appointment.getAppointmentTime().toLocalTime() + "\n" +
+                    "Subject: " + appointment.getSubject());
+                refreshAppointmentsTable((DefaultTableModel) ((JTable) ((JScrollPane) ((JPanel) ((JTabbedPane) studentPanel.getComponent(0)).getComponent(1)).getComponent(0)).getViewport().getView()).getModel());
+            } else {
+                JOptionPane.showMessageDialog(this, "Failed to create appointment. No available slots found.");
+            }
+        });
+
+        return panel;
     }
 
     private JPanel createMyAppointmentsPanel() {
@@ -429,18 +410,19 @@ public class ConsultationGUI extends JFrame {
         // Add buttons
         JPanel buttonPanel = new JPanel();
         JButton nextButton = new JButton("Next Appointment");
-        JButton priorityButton = new JButton("Set Priority");
+        JButton priorityButton = new JButton("Toggle Priority");
         JButton refreshButton = new JButton("Refresh");
         
         nextButton.addActionListener(e -> {
             Appointment nextAppointment = controller.getNextAppointment(currentUser.getUsername());
             if (nextAppointment != null) {
-                nextAppointment.setStatus("IN_PROGRESS");
+                JOptionPane.showMessageDialog(this, 
+                    "Starting consultation with:\n" +
+                    "Student: " + nextAppointment.getStudent().getUsername() + "\n" +
+                    "Subject: " + nextAppointment.getSubject());
                 refreshQueueManagementTable(model);
-                JOptionPane.showMessageDialog(this, "Started consultation with " + 
-                    nextAppointment.getStudent().getName());
             } else {
-                JOptionPane.showMessageDialog(this, "No appointments in queue!");
+                JOptionPane.showMessageDialog(this, "No appointments in queue");
             }
         });
         
@@ -453,13 +435,13 @@ public class ConsultationGUI extends JFrame {
                     boolean currentPriority = appointment.isPriority();
                     if (controller.setPriority(appointment, !currentPriority)) {
                         refreshQueueManagementTable(model);
-                        JOptionPane.showMessageDialog(this, "Priority updated successfully!");
-                    } else {
-                        JOptionPane.showMessageDialog(this, "Failed to update priority!");
+                        JOptionPane.showMessageDialog(this, 
+                            "Priority " + (!currentPriority ? "set" : "removed") + 
+                            " for appointment");
                     }
                 }
             } else {
-                JOptionPane.showMessageDialog(this, "Please select an appointment!");
+                JOptionPane.showMessageDialog(this, "Please select an appointment");
             }
         });
         
@@ -469,9 +451,6 @@ public class ConsultationGUI extends JFrame {
         buttonPanel.add(priorityButton);
         buttonPanel.add(refreshButton);
         panel.add(buttonPanel, BorderLayout.SOUTH);
-        
-        // Initial refresh
-        refreshQueueManagementTable(model);
         
         return panel;
     }
@@ -579,26 +558,24 @@ public class ConsultationGUI extends JFrame {
     }
 
     private void refreshQueueManagementTable(DefaultTableModel model) {
-        model.setRowCount(0); // Clear existing data
-        
+        model.setRowCount(0);
         QueueManager queue = controller.getQueueManager(currentUser.getUsername());
         if (queue != null) {
-            // Add priority queue appointments first
+            // Add priority appointments first
             for (Appointment appointment : queue.getPriorityQueue()) {
                 model.addRow(new Object[]{
                     appointment.getId(),
-                    appointment.getStudent().getName(),
+                    appointment.getStudent().getUsername(),
                     appointment.getSubject(),
                     appointment.getAppointmentTime(),
                     "High"
                 });
             }
-            
-            // Add regular queue appointments
+            // Add regular appointments
             for (Appointment appointment : queue.getRegularQueue()) {
                 model.addRow(new Object[]{
                     appointment.getId(),
-                    appointment.getStudent().getName(),
+                    appointment.getStudent().getUsername(),
                     appointment.getSubject(),
                     appointment.getAppointmentTime(),
                     "Normal"

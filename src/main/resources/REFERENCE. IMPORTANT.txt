@@ -1,0 +1,37 @@
+this is our project for comsci 2nd yr subject operating systems. write it in java using mvc, take it slow, step by step:
+Online Consultation Appointment Queue (FIFO)
+Algorithm Used: First-In–First-Out (FIFO)
+
+
+Users: Students, professors, school counselors
+
+
+Program Overview
+A queue-based system that allows students to book online consultations with teachers. Students can only appoint with their professors from their subjects, but can appoint with any counselors.
+
+
+Ensures fair appointment scheduling.
+
+
+Features & Innovations
+Live Queue Status Display: Shows estimated waiting time for each student.
+
+
+Time-Limited Slots: Prevents students from monopolizing consultation hours.
+
+
+Multiple Queue Management: Different professors/counselors can have separate queues.
+
+
+Reschedule & Cancellation Option: Frees up slots if students cancel.
+
+
+Priority Queueing: Professors/counselors can mark certain students as high-priority, allowing urgent or special cases to move ahead in the queue.
+
+
+Smart Notifications & Alerts: Users receive reminders for upcoming consultations, updates for cancellations, and rescheduling notifications.
+
+
+User Login & Role-Based Access: Secure login system that shows different features and interface layouts based on the user’s role (student, professor, or counselor).
+
+important: make it as simple as possible, do not overcomplicate, while achieving the necessary features. the purpose of this project is not to show a robust system, but only to show a functional system with algorithms, mainly first in first out, but with other algorithms such as scheduling or priority, depending on the features i listed as you can see.
