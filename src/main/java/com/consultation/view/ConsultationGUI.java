@@ -519,20 +519,21 @@ public class ConsultationGUI extends JFrame {
         };
         
         JTable appointmentsTable = createStyledTable(model);
-        appointmentsTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+        appointmentsTable.setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS);
         appointmentsTable.setRowHeight(30);
         
-        // Set column widths to match queue table
+        // Set column widths
         TableColumnModel columnModel = appointmentsTable.getColumnModel();
         columnModel.getColumn(0).setPreferredWidth(50);  // ID
-        columnModel.getColumn(1).setPreferredWidth(150); // With
-        columnModel.getColumn(2).setPreferredWidth(150); // Subject
-        columnModel.getColumn(3).setPreferredWidth(150); // Time
+        columnModel.getColumn(1).setPreferredWidth(200); // With
+        columnModel.getColumn(2).setPreferredWidth(200); // Subject
+        columnModel.getColumn(3).setPreferredWidth(200); // Time
         columnModel.getColumn(4).setPreferredWidth(100); // Status
         
         // Add table to scroll pane
         JScrollPane scrollPane = new JScrollPane(appointmentsTable);
         scrollPane.setBorder(BorderFactory.createEmptyBorder());
+        scrollPane.setPreferredSize(new Dimension(800, 400)); // Set preferred size
         panel.add(scrollPane, BorderLayout.CENTER);
         
         // Add buttons
