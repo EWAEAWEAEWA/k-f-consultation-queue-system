@@ -17,6 +17,7 @@ public class ConsultationController {
     private Map<Integer, Appointment> appointments;
     private Map<String, List<Notification>> userNotifications;
     private int nextAppointmentId;
+    private List<TimeSlot> timeSlots;
 
     public ConsultationController() {
         users = new HashMap<>();
@@ -40,18 +41,22 @@ public class ConsultationController {
                     
                     List<TimeSlot> slots = new ArrayList<>();
                     // Morning slots: 9:00-12:00
-                    slots.add(new TimeSlot(LocalTime.of(9, 0), LocalTime.of(10, 0)));
-                    slots.add(new TimeSlot(LocalTime.of(10, 0), LocalTime.of(11, 0)));
-                    slots.add(new TimeSlot(LocalTime.of(11, 0), LocalTime.of(12, 0)));
+                    slots.add(new TimeSlot(LocalTime.of(9, 0), LocalTime.of(10, 0), user));
+                    slots.add(new TimeSlot(LocalTime.of(10, 0), LocalTime.of(11, 0), user));
+                    slots.add(new TimeSlot(LocalTime.of(11, 0), LocalTime.of(12, 0), user));
                     // Afternoon slots: 1:00-4:00
-                    slots.add(new TimeSlot(LocalTime.of(13, 0), LocalTime.of(14, 0)));
-                    slots.add(new TimeSlot(LocalTime.of(14, 0), LocalTime.of(15, 0)));
-                    slots.add(new TimeSlot(LocalTime.of(15, 0), LocalTime.of(16, 0)));
+                    slots.add(new TimeSlot(LocalTime.of(13, 0), LocalTime.of(14, 0), user));
+                    slots.add(new TimeSlot(LocalTime.of(14, 0), LocalTime.of(15, 0), user));
+                    slots.add(new TimeSlot(LocalTime.of(15, 0), LocalTime.of(16, 0), user));
                     
                     schedule.put(date, slots);
                 }
             }
         }
+        timeSlots = new ArrayList<>(professorSchedules.values().stream()
+            .flatMap(schedule -> schedule.values().stream())
+            .flatMap(List::stream)
+            .toList());
     }
 
     public User registerUser(String username, String password, String role, String name, String email) {
@@ -260,102 +265,96 @@ public class ConsultationController {
         return false;
     }
 
-    public boolean setPriority(Appointment appointment, boolean priority) {
-        QueueManager queue = queues.get(appointment.getProfessorOrCounselor().getUsername());
-        if (queue != null) {
-            // If setting priority, move to front of priority queue
-            if (priority) {
-                // Remove from current time slot
-                Map<LocalDate, List<TimeSlot>> schedule = professorSchedules.get(
-                    appointment.getProfessorOrCounselor().getUsername());
-                if (schedule != null) {
-                    // Find all appointments that need to be moved
-                    List<Appointment> appointmentsToMove = new ArrayList<>();
-                    LocalDateTime currentTime = appointment.getAppointmentTime();
-                    
-                    // Find all regular appointments before the priority appointment
-                    for (Map.Entry<LocalDate, List<TimeSlot>> entry : schedule.entrySet()) {
-                        for (TimeSlot slot : entry.getValue()) {
-                            LocalDateTime slotTime = LocalDateTime.of(entry.getKey(), slot.getStartTime());
-                            if (slotTime.isBefore(currentTime) && slot.getAppointment() != null) {
-                                Appointment existingAppointment = slot.getAppointment();
-                                if (!existingAppointment.isPriority()) {
-                                    appointmentsToMove.add(existingAppointment);
-                                }
-                            }
-                        }
-                    }
-
-                    // Sort appointments by time
-                    appointmentsToMove.sort((a1, a2) -> a1.getAppointmentTime().compareTo(a2.getAppointmentTime()));
-
-                    // Move each appointment to the next available slot
-                    for (Appointment appToMove : appointmentsToMove) {
-                        // Remove from current slot
-                        for (TimeSlot slot : schedule.get(appToMove.getAppointmentTime().toLocalDate())) {
-                            if (slot.getAppointment() != null && 
-                                slot.getAppointment().getId() == appToMove.getId()) {
-                                slot.removeAppointment();
-                                break;
-                            }
-                        }
-
-                        // Find next available slot
-                        LocalDateTime nextAvailableTime = null;
-                        TimeSlot nextAvailableSlot = null;
-                        for (Map.Entry<LocalDate, List<TimeSlot>> entry : schedule.entrySet()) {
-                            for (TimeSlot slot : entry.getValue()) {
-                                LocalDateTime slotTime = LocalDateTime.of(entry.getKey(), slot.getStartTime());
-                                if (slot.isAvailable() && 
-                                    (nextAvailableTime == null || 
-                                     slotTime.isAfter(appToMove.getAppointmentTime()))) {
-                                    nextAvailableTime = slotTime;
-                                    nextAvailableSlot = slot;
-                                    break;
-                                }
-                            }
-                            if (nextAvailableSlot != null) break;
-                        }
-
-                        if (nextAvailableSlot != null) {
-                            nextAvailableSlot.addAppointment(appToMove);
-                            appToMove.setAppointmentTime(nextAvailableTime);
-                            
-                            // Notify the student about the change
-                            notifyAppointmentChange(appToMove, 
-                                "Your appointment has been rescheduled to " + nextAvailableTime + 
-                                " due to a priority appointment");
-                        }
-                    }
-
-                    // Move priority appointment to earliest available slot
-                    LocalDateTime earliestTime = null;
-                    TimeSlot earliestSlot = null;
-                    for (Map.Entry<LocalDate, List<TimeSlot>> entry : schedule.entrySet()) {
-                        for (TimeSlot slot : entry.getValue()) {
-                            LocalDateTime slotTime = LocalDateTime.of(entry.getKey(), slot.getStartTime());
-                            if (slot.isAvailable() && 
-                                (earliestTime == null || 
-                                 slotTime.isBefore(earliestTime))) {
-                                earliestTime = slotTime;
-                                earliestSlot = slot;
-                            }
-                        }
-                    }
-
-                    if (earliestSlot != null) {
-                        earliestSlot.addAppointment(appointment);
-                        appointment.setAppointmentTime(earliestTime);
-                        
-                        // Notify the student about the priority status
-                        notifyAppointmentChange(appointment, 
-                            "Your appointment has been marked as priority and scheduled for " + earliestTime);
-                    }
+    public boolean setPriority(Appointment appointment, boolean isPriority) {
+        if (appointment == null) return false;
+        
+        // Get the queue manager for the professor/counselor
+        QueueManager queueManager = queues.get(appointment.getProfessorOrCounselor().getUsername());
+        if (queueManager == null) return false;
+        
+        // If setting priority
+        if (isPriority && !appointment.isPriority()) {
+            // Find the earliest available slot
+            LocalDateTime currentTime = appointment.getAppointmentTime();
+            LocalDateTime earliestSlot = null;
+            
+            // Find the earliest available slot
+            for (TimeSlot slot : timeSlots) {
+                if (slot.getProfessorOrCounselor().equals(appointment.getProfessorOrCounselor()) &&
+                    !slot.isBooked()) {
+                    earliestSlot = LocalDateTime.of(currentTime.toLocalDate(), slot.getStartTime());
+                    break;
                 }
             }
-            return queue.setPriority(appointment, priority);
+            
+            if (earliestSlot != null) {
+                // Get all regular appointments that need to be moved
+                List<Appointment> appointmentsToMove = new ArrayList<>();
+                for (Appointment app : queueManager.getRegularQueue()) {
+                    if (app.getAppointmentTime().isBefore(currentTime)) {
+                        appointmentsToMove.add(app);
+                    }
+                }
+                
+                // Sort appointments by time to maintain FIFO order
+                appointmentsToMove.sort(Comparator.comparing(Appointment::getAppointmentTime));
+                
+                // Move each appointment to the next available slot
+                LocalDateTime nextSlot = earliestSlot;
+                for (Appointment app : appointmentsToMove) {
+                    // Find next available slot after the current one
+                    LocalDateTime availableSlot = findNextAvailableSlot(appointment.getProfessorOrCounselor(), nextSlot);
+                    if (availableSlot != null) {
+                        app.setAppointmentTime(availableSlot);
+                        notifyAppointmentChange(app, "Your appointment has been rescheduled to " + 
+                            availableSlot.toString() + " due to a priority appointment.");
+                        nextSlot = availableSlot;
+                    }
+                }
+                
+                // Move the priority appointment to the earliest slot
+                appointment.setAppointmentTime(earliestSlot);
+                appointment.setPriority(true);
+                queueManager.addToPriorityQueue(appointment);
+                
+                // Sort priority queue to maintain FIFO order
+                List<Appointment> priorityList = new ArrayList<>(queueManager.getPriorityQueue());
+                priorityList.sort(Comparator.comparing(Appointment::getAppointmentTime));
+                queueManager.getPriorityQueue().clear();
+                queueManager.getPriorityQueue().addAll(priorityList);
+                
+                return true;
+            }
+        } 
+        // If removing priority
+        else if (!isPriority && appointment.isPriority()) {
+            appointment.setPriority(false);
+            queueManager.removeFromPriorityQueue(appointment);
+            return true;
         }
+        
         return false;
+    }
+
+    private LocalDateTime findNextAvailableSlot(User professorOrCounselor, LocalDateTime currentTime) {
+        // Find the next available slot after currentTime
+        for (TimeSlot slot : timeSlots) {
+            if (slot.getProfessorOrCounselor().equals(professorOrCounselor) &&
+                slot.getStartTime().isAfter(currentTime.toLocalTime()) &&
+                !slot.isBooked()) {
+                return LocalDateTime.of(currentTime.toLocalDate(), slot.getStartTime());
+            }
+        }
+        
+        // If no slot found on same day, look for next available day
+        for (TimeSlot slot : timeSlots) {
+            if (slot.getProfessorOrCounselor().equals(professorOrCounselor) &&
+                !slot.isBooked()) {
+                return LocalDateTime.of(currentTime.toLocalDate().plusDays(1), slot.getStartTime());
+            }
+        }
+        
+        return null;
     }
 
     private void notifyAppointmentChange(Appointment appointment, String message) {
@@ -390,19 +389,23 @@ public class ConsultationController {
                     
                     List<TimeSlot> slots = new ArrayList<>();
                     // Morning slots: 9:00-12:00
-                    slots.add(new TimeSlot(LocalTime.of(9, 0), LocalTime.of(10, 0)));
-                    slots.add(new TimeSlot(LocalTime.of(10, 0), LocalTime.of(11, 0)));
-                    slots.add(new TimeSlot(LocalTime.of(11, 0), LocalTime.of(12, 0)));
+                    slots.add(new TimeSlot(LocalTime.of(9, 0), LocalTime.of(10, 0), user));
+                    slots.add(new TimeSlot(LocalTime.of(10, 0), LocalTime.of(11, 0), user));
+                    slots.add(new TimeSlot(LocalTime.of(11, 0), LocalTime.of(12, 0), user));
                     // Afternoon slots: 1:00-4:00
-                    slots.add(new TimeSlot(LocalTime.of(13, 0), LocalTime.of(14, 0)));
-                    slots.add(new TimeSlot(LocalTime.of(14, 0), LocalTime.of(15, 0)));
-                    slots.add(new TimeSlot(LocalTime.of(15, 0), LocalTime.of(16, 0)));
+                    slots.add(new TimeSlot(LocalTime.of(13, 0), LocalTime.of(14, 0), user));
+                    slots.add(new TimeSlot(LocalTime.of(14, 0), LocalTime.of(15, 0), user));
+                    slots.add(new TimeSlot(LocalTime.of(15, 0), LocalTime.of(16, 0), user));
                     
                     schedule.put(date, slots);
                     System.out.println("Created " + slots.size() + " slots for " + user.getUsername());
                 }
             }
         }
+        timeSlots = new ArrayList<>(professorSchedules.values().stream()
+            .flatMap(schedule -> schedule.values().stream())
+            .flatMap(List::stream)
+            .toList());
         System.out.println("Time slot initialization complete");
     }
 

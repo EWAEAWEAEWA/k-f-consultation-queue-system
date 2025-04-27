@@ -9,10 +9,12 @@ public class TimeSlot {
     private LocalTime endTime;
     private Appointment appointment; // Only one appointment per slot
     private boolean isAvailable;
+    private User professorOrCounselor;
 
-    public TimeSlot(LocalTime startTime, LocalTime endTime) {
+    public TimeSlot(LocalTime startTime, LocalTime endTime, User professorOrCounselor) {
         this.startTime = startTime;
         this.endTime = endTime;
+        this.professorOrCounselor = professorOrCounselor;
         this.appointment = null;
         this.isAvailable = true;
     }
@@ -54,5 +56,13 @@ public class TimeSlot {
     public void removeAppointment() {
         this.appointment = null;
         isAvailable = true;
+    }
+
+    public boolean isBooked() {
+        return appointment != null;
+    }
+
+    public User getProfessorOrCounselor() {
+        return professorOrCounselor;
     }
 } 
