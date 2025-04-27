@@ -15,6 +15,8 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.Date;
 import java.util.List;
+import java.util.ArrayList;
+import java.util.Comparator;
 
 public class ConsultationGUI extends JFrame {
     private ConsultationController controller;
@@ -518,8 +520,9 @@ public class ConsultationGUI extends JFrame {
         
         JTable appointmentsTable = createStyledTable(model);
         appointmentsTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+        appointmentsTable.setRowHeight(30);
         
-        // Set column widths
+        // Set column widths to match queue table
         TableColumnModel columnModel = appointmentsTable.getColumnModel();
         columnModel.getColumn(0).setPreferredWidth(50);  // ID
         columnModel.getColumn(1).setPreferredWidth(150); // With
@@ -814,24 +817,34 @@ public class ConsultationGUI extends JFrame {
         model.setRowCount(0);
         QueueManager queue = controller.getQueueManager(currentUser.getUsername());
         if (queue != null) {
+            // Get all appointments and sort them by time
+            List<Appointment> allAppointments = new ArrayList<>();
+            
             // Add priority appointments first
-            for (Appointment appointment : queue.getPriorityQueue()) {
-                model.addRow(new Object[]{
-                    appointment.getId(),
-                    appointment.getStudent().getName(),
-                    appointment.getSubject(),
-                    appointment.getAppointmentTime(),
-                    "High"
-                });
+            for (Appointment app : queue.getPriorityQueue()) {
+                if (!allAppointments.contains(app)) {
+                    allAppointments.add(app);
+                }
             }
+            
             // Add regular appointments
-            for (Appointment appointment : queue.getRegularQueue()) {
+            for (Appointment app : queue.getRegularQueue()) {
+                if (!allAppointments.contains(app)) {
+                    allAppointments.add(app);
+                }
+            }
+            
+            // Sort by time
+            allAppointments.sort(Comparator.comparing(Appointment::getAppointmentTime));
+            
+            // Add to table
+            for (Appointment appointment : allAppointments) {
                 model.addRow(new Object[]{
                     appointment.getId(),
                     appointment.getStudent().getName(),
                     appointment.getSubject(),
                     appointment.getAppointmentTime(),
-                    "Normal"
+                    appointment.isPriority() ? "High" : "Normal"
                 });
             }
         }
@@ -839,7 +852,12 @@ public class ConsultationGUI extends JFrame {
 
     private void refreshAppointmentsListTable(DefaultTableModel model) {
         model.setRowCount(0);
-        for (Appointment appointment : controller.getUserAppointments(currentUser)) {
+        List<Appointment> appointments = controller.getUserAppointments(currentUser);
+        
+        // Sort appointments by time
+        appointments.sort(Comparator.comparing(Appointment::getAppointmentTime));
+        
+        for (Appointment appointment : appointments) {
             model.addRow(new Object[]{
                 appointment.getId(),
                 appointment.getStudent().getName(),
