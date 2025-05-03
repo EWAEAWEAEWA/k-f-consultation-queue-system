@@ -21,7 +21,7 @@ public class DataInitializer {
         controller.registerUser("counselor.garcia", "pass123", "COUNSELOR", 
             "Ms. Sofia Garcia", "sgarcia@tip.edu.ph");
 
-        // Initialize Students
+        // Initialize Students	
         User student1 = controller.registerUser("student1", "pass123", "STUDENT", 
             "John Doe", "jdoe@tip.edu.ph");
         student1.addSubject("Operating Systems");
